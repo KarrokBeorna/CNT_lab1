@@ -74,12 +74,11 @@ def handle_client(clientsocket):
                     while data[i] != 0xaa:
                         i += 1
                     lenMsg = int(data[4:i].decode('utf8'))
-                    print(lenMsg)
                     if data[i+3] == 0 or data[i+3] == 3:
                         if data[i+3] == 3:
                             buffer += '[' + users[list(sockets.keys()).index(clientsocket)] + '] '
                         buffer += data[i+4:].decode('utf8')
-                        lenMsg -= 1024
+                        lenMsg -= 1024 - i
                         while lenMsg > 0:
                             data = clientsocket.recv(1024)
                             buffer += data.decode('utf8')
@@ -91,7 +90,7 @@ def handle_client(clientsocket):
                         filename = data[i+4:].decode('utf8').split(' ')[1]
                         sendFile(clientsocket, filename, name=True)
                         buffer += data[(i+17 + len(filename) + 1):].decode('utf8')
-                        lenMsg -= 1024
+                        lenMsg -= 1024 - i
                         while lenMsg > 0:
                             data = clientsocket.recv(1024)
                             buffer += data.decode('utf8')

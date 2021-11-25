@@ -35,7 +35,7 @@ def read_s():
                                 datafile = s.recv(4096)
                                 f.write(datafile)
                                 lenFile -= 4096
-        except ConnectionAbortedError:
+        except Exception:
             shutil.rmtree('files' + user, ignore_errors=True)
             s.close()
             break
