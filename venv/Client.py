@@ -49,7 +49,7 @@ def read_s():
                     print(buffer)
                     #newUser = data[23:].decode('utf8')
 
-        except ConnectionResetError:
+        except Exception:
             shutil.rmtree('files' + user, ignore_errors=True)
             s.close()
             break
