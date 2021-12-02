@@ -12,124 +12,93 @@ def deleteUser(index, clientsocket):
     global sockets, users
     user = users[index]
     if user != '':
-        sendMsg(clientsocket, 'Пользователь ' + user + ' покинул чат')
-        print(hmTime(-time.timezone) + 'Пользователь ' + user + ' покинул чат')
+        sendMsg(clientsocket, b'\x03' + ('User ' + user + ' disconnected').encode('utf8'))
     del users[index]
     del sockets[clientsocket]
     clientsocket.close()
 
-def createPacket(type, msg):
-    byteType = b'\xFF'
-    if type == 3:           # простые сообщения
-        byteType = b'\x03'
-    elif type == 4:         # длина пакета
-        byteType = b'\x04'
-    elif type == 5:         # размер файла
-        byteType = b'\x05'
-    elif type == 6:         # имя файла
-        byteType = b'\x06'
-    return (b'\xAA\xBB\xCC' + byteType + msg.encode('utf8'))
-
-def sendFile(clientsocket, datafile, size=False, name=False):
+def sendFile(clientsocket, datafile):
     global sockets, users
-    if size or name:
-        type = 0
-        if size:
-            type = 5
-        else:
-            type = 6
-        for socket in sockets.keys():
-            if clientsocket != socket and sockets[socket] != 1 and sockets[clientsocket] != 1:
-                miniSendMsg(type, datafile, socket)
-    else:
-        for socket in sockets.keys():
-            if clientsocket != socket and sockets[socket] != 1 and sockets[clientsocket] != 1:
-                socket.send(datafile)
+    for socket in sockets.keys():
+        if clientsocket != socket and sockets[socket] != 1 and sockets[clientsocket] != 1:
+            socket.send(datafile)
 
 def sendMsg(clientsocket, msg, serverResponse=False):
     global sockets, users
     if serverResponse:
-        miniSendMsg(3, msg, clientsocket)
+        clientsocket.send(len(msg).to_bytes(2, 'big') + msg)
     else:
         for socket in sockets.keys():
             if clientsocket != socket and sockets[socket] != 1 and sockets[clientsocket] != 1:
-                miniSendMsg(3, hmTime(sockets[socket]) + msg, socket)
-
-def miniSendMsg(type, msg, socket):
-    bytesMsg = createPacket(type, msg)
-    lenMsg = createPacket(4, str(len(bytesMsg)))
-    socket.send(lenMsg + bytesMsg)
+                timeMsg = msg[0].to_bytes(1,'big') + (hmTime(sockets[socket])).encode('utf8') + msg[1:]
+                socket.send(len(timeMsg).to_bytes(2, 'big') + timeMsg)
 
 def handle_client(clientsocket):
     global sockets, users
     lenMsg = 0
-    filename = ''
+    if clientsocket not in sockets:
+        sockets[clientsocket] = 1
+        users.append('')
     while clientsocket in sockets.keys():
-        buffer = ''
+        buffer = b''
         try:
             data = clientsocket.recv(1024)
-            if len(data) > 8:
-                if data[0] == 0xaa and data[1] == 0xbb and data[2] == 0xcc:
-                    i = 1
-                    while data[i] != 0xaa:
-                        i += 1
-                    lenMsg = int(data[4:i].decode('utf8'))
-                    if data[i+3] == 0 or data[i+3] == 3:
-                        if data[i+3] == 3:
-                            buffer += '[' + users[list(sockets.keys()).index(clientsocket)] + '] '
-                        buffer += data[i+4:].decode('utf8')
-                        lenMsg -= 1024 - i
-                        while lenMsg > 0:
-                            data = clientsocket.recv(1024)
-                            buffer += data.decode('utf8')
-                            lenMsg -= 1024
-                        sendMsg(clientsocket,  buffer)
-                    elif data[i+3] == 1:
-                        deleteUser(list(sockets.keys()).index(clientsocket), clientsocket)
-                    elif data[i+3] == 2:
-                        filename = data[i+4:].decode('utf8').split(' ')[1]
-                        sendFile(clientsocket, filename, name=True)
-                        buffer += data[(i+17 + len(filename) + 1):].decode('utf8')
-                        lenMsg -= 1024 - i
-                        while lenMsg > 0:
-                            data = clientsocket.recv(1024)
-                            buffer += data.decode('utf8')
-                            lenMsg -= 1024
-                        sendMsg(clientsocket, '[' + users[list(sockets.keys()).index(clientsocket)] + '] ' + buffer)
-                    elif data[i+3] == 6:
-                        filename = data[i+4:].decode('utf8').split(' ')[1]
-                        sendFile(clientsocket, filename, name=True)
-                    elif data[i+3] == 5:
-                        lenFile = int(data[i+4:].decode('utf8'))
-                        time.sleep(1)
-                        sendFile(clientsocket, str(lenFile), True)
-                        time.sleep(1)
+            if len(data) > 2:
+                lenMsg = int.from_bytes(data[:2], 'big')
+                if data[2] == 0 or data[2] == 2 or data[2] == 3:
+                    if data[2] == 2 or data[2] == 3:
+                        if data[2] == 2:
+                            buffer = b'\x02' + ('[' + users[list(sockets.keys()).index(clientsocket)] + ']').encode('utf8') + b'\xff'
+                        else:
+                            buffer = b'\x03' + ('[' + users[list(sockets.keys()).index(clientsocket)] + '] ').encode('utf8')
+                    if data[2] == 2:
+                        lenFile = int.from_bytes(data[3:7], 'big')
+                        split = data[7:].decode('utf8').split(' ')
+                        if len(split) < 2:
+                            filename = split[0]
+                        else:
+                            filename = split[0]
+                    buffer += data[3:]
+                    lenMsg -= 1022
+                    while lenMsg > 0:
+                        data = clientsocket.recv(1024)
+                        buffer += data
+                        lenMsg -= 1024
+                    sendMsg(clientsocket,  buffer)
+
+                    if data[2] == 2:
                         while lenFile > 0:
                             datafile = clientsocket.recv(4096)
                             sendFile(clientsocket, datafile)
-                            lenFile = lenFile - 4096
-                        sendMsg(clientsocket, 'Пользователь ' + users[list(sockets.keys()).index(clientsocket)] +
-                                ' отправил файл ' + filename)
+                            lenFile -= 4096
+
+                        sendMsg(clientsocket, b'\x03' + ('User ' + users[list(sockets.keys()).index(clientsocket)] +
+                                               ' uploaded file ' + filename).encode('utf8'))
+                elif data[2] == 1:
+                    deleteUser(list(sockets.keys()).index(clientsocket), clientsocket)
+                elif data[2] == 4:
+                    user = data[14:].decode('utf8').split(' ')[0]
+                    if user not in users:
+                        sendMsg(clientsocket, b'\x04' + ('Username changed to ' + user).encode('utf8'), True)
+                        sendMsg(clientsocket, b'\x03' + ('User [' + users[list(sockets.keys()).index(clientsocket)] +
+                                                         '] changed username to [' + user + ']').encode('utf8'))
+                        users[list(sockets.keys()).index(clientsocket)] = user
+                    else:
+                        sendMsg(clientsocket, b'\x03' + ('The name is already in use').encode('utf8'), True)
+
         except ConnectionResetError:
             deleteUser(list(sockets.keys()).index(clientsocket), clientsocket)
         else:
-            if buffer != '':
+            if buffer != b'':
                 if sockets[clientsocket] == 1:
-                    newUser, timezone = buffer.split(' ')
+                    newUser, timezone = buffer.decode('utf8').split(' ')
                     if newUser not in users:
                         sockets[clientsocket] = int(timezone)
                         users[list(sockets.keys()).index(clientsocket)] = newUser
-                        sendMsg(clientsocket, 'Вы подключены к чату \nДля выхода из чата напишите >>exit<< \n'
-                                              'Для отправки файла используйте \'>>sendfile<< имя файла\' \n'
-                                              'Файлы должны располагаться в директории скрипта, в папке files \n'
-                                              'В названиях файлов не должно быть пробелов', True)
-                        sendMsg(clientsocket, newUser + ' подключился к чату')
+                        sendMsg(clientsocket, b'\x00' + ('Commands: >>exit<<, >>sendfile<< \'filename\', >>chname<< \'name\'').encode('utf8'), True)
+                        sendMsg(clientsocket, b'\x03' + (newUser + ' connected').encode('utf8'))
                     else:
-                        sendMsg(clientsocket, 'Данное имя пользователя уже используется \nВведите другое имя пользователя:', True)
-
-                if clientsocket in sockets:
-                    if sockets[clientsocket] != 1:
-                        print(hmTime(-time.timezone) + buffer)
+                        sendMsg(clientsocket, b'\x03' + ('The name is already in use').encode('utf8'), True)
 
 
 serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -141,11 +110,6 @@ users = []
 while True:
     clientsocket, address = serversocket.accept()
     print('Connected by', address)
-
-    if clientsocket not in sockets:
-        sockets[clientsocket] = 1
-        users.append('')
-        sendMsg(clientsocket, 'Введите имя пользователя:',True)
 
     client_handler = threading.Thread(target=handle_client, args=(clientsocket, ))
     client_handler.start()
