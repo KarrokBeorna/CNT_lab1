@@ -47,7 +47,7 @@ def read_s():
                 elif data[2] == 4:
                     buffer += data[3:].decode('utf8')
                     print(buffer)
-                    #newUser = data[23:].decode('utf8')
+                    # newUser = data[23:].decode('utf8')
 
         except Exception:
             shutil.rmtree('files' + user, ignore_errors=True)
@@ -97,7 +97,7 @@ def sendPacket(msg):
         elif msg.split(' ')[0] == '>>sendfile<<':
             lenFile = os.stat('files/' + msg.split(' ')[1]).st_size
             sendMsg(2, msg[13:], lenFile)
-            time.sleep(2)
+            time.sleep(1)
             with open('files/' + msg.split(' ')[1], 'rb') as f:
                 d = f.read(4096)
                 while d != b'':
